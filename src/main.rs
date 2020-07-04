@@ -1,3 +1,4 @@
+#![feature(thread_id_value)]
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
@@ -22,12 +23,14 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
+use std::thread;
+
 use std::sync::Arc;
 
 use specs::prelude::*;
 
 mod maths;
-use maths::{Vec3, Quaternion};
+use maths::{Vec3, Quaternion, Mat4};
 
 // A component contains data
 // which is associated with an entity.
@@ -39,7 +42,7 @@ impl Component for Vel {
 }
 
 #[derive(Debug)]
-struct Pos ([f32;3]);
+struct Pos (Vec3);
 
 impl Component for Pos {
     type Storage = VecStorage<Self>;
@@ -61,26 +64,6 @@ impl Component for Draw {
 	type Storage = VecStorage<Self>;
 }
 
-struct SysA;
-
-impl<'a> System<'a> for SysA {
-    // These are the resources required for execution.
-    // You can also define a struct and `#[derive(SystemData)]`,
-    // see the `full` example.
-    type SystemData = (WriteStorage<'a, Pos>, ReadStorage<'a, Vel>);
-
-    fn run(&mut self, (mut pos, vel): Self::SystemData) {
-        // The `.join()` combines multiple component storages,
-        // so we get access to all entities which have
-        // both a position and a velocity.
-        for (pos, vel) in (&mut pos, &vel).join() {
-            pos.0[0] += vel.0[0];
-            pos.0[1] += vel.0[1];
-            pos.0[2] += vel.0[2];
-        }
-    }
-}
-
 
 #[derive(Default, Debug, Clone)]
 struct Vertex {
@@ -90,6 +73,19 @@ struct Vertex {
 
 vulkano::impl_vertex!(Vertex, position, in_colour);
 
+
+struct RotSys;
+
+impl<'a> System<'a> for RotSys {
+	type SystemData = WriteStorage<'a, Rot>;
+
+	fn run(&mut self, mut rot: Self::SystemData) {
+
+		for rot in (&mut rot).join() {
+			rot.0 = rot.0 * Quaternion::rotation(Vec3(1.0, 0.0, 0.0).normalize(), 1.0f32.to_radians());
+		}
+	}
+}
 
 mod vs {
 	vulkano_shaders::shader! {
@@ -107,10 +103,12 @@ mod vs {
 			};
 
 			layout (location = 0) out vec3 vert_colour;
+			layout (location = 1) out vec4 vert_z;
 
 			void main() {
 				vert_colour = in_colour;
 				gl_Position = projection * view * model * vec4(position, 1.0);
+				vert_z = gl_Position;
 
 			}
 		"
@@ -124,9 +122,9 @@ mod fs {
 			#version 450
 
 			layout (location = 0) in vec3 vert_colour;
+			layout (location = 1) in vec4 vert_z;
 
 			layout (location = 0) out vec4 colour;
-
 
 			void main() {
 
@@ -150,7 +148,7 @@ struct RenderSys {
 	pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
 	dynamic_state: DynamicState,
 	framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
-	projection: [[f32;4];4],
+	projection: Mat4,
 	previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
 
@@ -306,10 +304,11 @@ impl<'a> System<'a> for RenderSys {
 		Write<'a, RecreateSwapchain>,
 		ReadStorage<'a, Draw>,
 		ReadStorage<'a, Pos>,
+		ReadStorage<'a, Rot>
 	);
 
 	fn run(&mut self, data: Self::SystemData) {
-		let (mut recreate_swapchain, draw, pos) = data;
+		let (mut recreate_swapchain, draw, pos, rot) = data;
 		self.previous_frame_end.as_mut().unwrap().cleanup_finished();
 		
 		if recreate_swapchain.0 {
@@ -363,25 +362,24 @@ impl<'a> System<'a> for RenderSys {
 			.begin_render_pass(self.framebuffers[image_num].clone(), false, clear_values)
 			.unwrap();
 
-		for (draw, pos) in (&draw, &pos).join() {
+		for (draw, pos, rot) in (&draw, &pos, &rot).join() {
 
 
 
 			let sub_buffer = {
 				let uniform_data = vs::ty::Data {
-					model: [
-						[1.0, 0.0, 0.0, 0.0],
-						[0.0, 1.0, 0.0, 0.0],
-						[0.0, 0.0, 1.0, 0.0],
-						[pos.0[0], pos.0[1], pos.0[2], 1.0],
-					],
+					model: (Mat4::identity()
+						.translate(pos.0)
+						* rot.0.as_matrix())
+						.transpose()
+						.as_array(),
 					view: [
 						[1.0, 0.0, 0.0, 0.0],
 						[0.0, 1.0, 0.0, 0.0],
 						[0.0, 0.0, 1.0, 0.0],
 						[0.0, 0.0, 0.0, 1.0],
 					],
-					projection: self.projection,
+					projection: self.projection.transpose().as_array(),
 				};
 
 				self.uniform_buffer.next(uniform_data).unwrap()
@@ -420,6 +418,8 @@ impl<'a> System<'a> for RenderSys {
 			.then_swapchain_present(self.queue.clone(), self.swapchain.clone(), image_num)
 			.then_signal_fence_and_flush();
 
+//		println!("{}", thread::current().id().as_u64());
+	
 		match future {
 			Ok(future) => {
 				self.previous_frame_end = Some(future.boxed());
@@ -528,6 +528,7 @@ fn main() {
 					position: Vec3(-1.0, 1.0, -1.0),
 					in_colour: [0.0, 1.0, 0.0],
 				},
+
 			]
 			.iter()
 			.cloned(),
@@ -569,7 +570,15 @@ fn main() {
 			BufferUsage::all(),
 			false,
 			[
-				0, 1, 2, 2, 3, 0
+				0, 1, 2, 2, 3, 0,
+				4, 5, 6, 6, 7, 4,
+				
+				0, 1, 4, 4, 5, 1,
+				2, 3, 6, 6, 7, 3,
+
+				0, 3, 4, 4, 7, 3,
+				2, 6, 7
+				
 			]
 			.iter()
 			.cloned()
@@ -580,17 +589,27 @@ fn main() {
 	let mut world = World::new();
 	world.register::<Pos>();
 	world.register::<Vel>();
+	world.register::<Rot>();
 	world.register::<Draw>();
 
 
-	world.create_entity().with(Vel([0.001;3])).with(Pos([0.0, 1.0, -5.0])).with(Draw {vertex_buffer: vertex_buffer, index_buffer: index_buffer}).build();
-	world.create_entity().with(Vel([-0.002;3])).with(Pos([-2.0, 0.0, -6.0])).with(Draw {vertex_buffer: vertex_buffer_1, index_buffer: index_buffer_1}).build();
-	world.create_entity().with(Vel([0.003;3])).with(Pos([1.0, 3.0, -7.0])).with(Draw {vertex_buffer: vertex_buffer_2, index_buffer: index_buffer_2}).build();
+	world.create_entity()
+		.with(Vel([0.001;3])).with(Pos(Vec3(0.0, 1.0, -5.0)))
+		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 45f32.to_radians())))
+		.with(Draw {vertex_buffer: vertex_buffer, index_buffer: index_buffer}).build();
+	world.create_entity()
+		.with(Vel([0.002;3])).with(Pos(Vec3(-2.0, 0.0, -6.0)))
+		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 45f32.to_radians())))
+		.with(Draw {vertex_buffer: vertex_buffer_1, index_buffer: index_buffer_1}).build();
+	world.create_entity()
+		.with(Vel([0.003;3])).with(Pos(Vec3(0.0, 0.0, -6.0)))
+		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 45f32.to_radians())))
+		.with(Draw {vertex_buffer: vertex_buffer_2, index_buffer: index_buffer_2}).build();
 
 	world.insert(RecreateSwapchain(false));
 
 	let mut dispatcher = DispatcherBuilder::new()
-		.with(SysA, "sys_a", &[])
+		.with(RotSys, "rot_sys", &[])
 		.with_thread_local(render_sys)
 		.build();
 
@@ -622,30 +641,12 @@ fn main() {
 	});
 }
 
-static NEAR: f32 = 0.1;
-static FAR: f32 = 1000.0;
-
-fn create_projection_matrix(dimensions: (f32, f32)) -> [[f32;4];4] {
-	println!("Creating projection matrix!");
-	let aspect_ratio = dimensions.0 / dimensions.1;
-	let y_scale = 1.0 / (90.0f32 / 2.0f32).to_radians().tan() * aspect_ratio;
-	let x_scale = y_scale / aspect_ratio;
-	let frustum_length = FAR - NEAR;
-	let zp = FAR + NEAR;
-	[
-		[x_scale, 0.0, 0.0, 0.0],
-		[0.0, y_scale, 0.0, 0.0],
-		[0.0, 0.0, -frustum_length / zp, -1.0],
-		[0.0, 0.0, -(2.0 * NEAR * FAR ) / frustum_length, 0.0]
-	]
-}
-
 fn window_size_dependent_setup(
 	device: Arc<Device>,
 	images:	&[Arc<SwapchainImage<Window>>],
 	render_pass: Arc<dyn RenderPassAbstract	+ Send + Sync>,
 	dynamic_state: &mut	DynamicState,
-) -> (Vec<Arc<dyn FramebufferAbstract + Send	+ Sync>>, [[f32;4];4]) {
+) -> (Vec<Arc<dyn FramebufferAbstract + Send	+ Sync>>, Mat4) {
 	let	dimensions = images[0].dimensions();
 
 	let	viewport = Viewport	{
@@ -672,5 +673,5 @@ fn window_size_dependent_setup(
 					.unwrap(),
 			) as Arc<dyn FramebufferAbstract + Send	+ Sync>
 		})
-		.collect::<Vec<_>>(), create_projection_matrix((dimensions[0] as f32, dimensions[1] as f32)))
+		.collect::<Vec<_>>(), Mat4::projection(70f32.to_radians(), (dimensions[0] as f32, dimensions[1] as f32), 0.001, 1000.0))
 }
