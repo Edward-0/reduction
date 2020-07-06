@@ -1,5 +1,7 @@
 use vulkano::pipeline::vertex::VertexMember;
 use vulkano::pipeline::vertex::VertexMemberTy;
+use packed_simd::f32x4;
+
 #[derive(Default, Debug, Clone, Copy)]
 pub struct Vec3(pub f32, pub f32, pub f32);
 
@@ -32,6 +34,14 @@ impl Vec3 {
 	}
 }
 
+impl std::ops::Mul<f32> for Vec3 {
+	type Output = Vec3;
+
+	fn mul(self, other: f32) -> Vec3 {
+		Vec3(self.0 * other, self.1 * other, self.2 * other)
+	}
+}
+
 impl std::ops::Mul<Vec3> for f32 {
 	type Output = Vec3;
 	
@@ -39,6 +49,15 @@ impl std::ops::Mul<Vec3> for f32 {
 		Vec3(self * other.0, self * other.1, self * other.2)
 	} 
 }
+
+impl std::ops::Add for Vec3 {
+	type Output = Vec3;
+	
+	fn add(self, other: Vec3) -> Vec3 {
+		Vec3(self.0 + other.0, self.1 + other.1, self.2 + other.2)
+	}
+}
+
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct Mat4(
@@ -157,8 +176,8 @@ impl Quaternion {
 	// Expect unit axis
 	pub fn rotation(axis: Vec3, theta: f32) -> Quaternion {
 		Quaternion {
-			s: (0.5 * theta).cos(),
-			v: (0.5 * theta).sin() * axis,
+			s: (theta).cos(),
+			v: (theta).sin() * axis,
 		}
 	}
 
@@ -185,6 +204,74 @@ impl Quaternion {
 			1.0,
 		)
 	}
+
+	pub fn dot(self, other: Self) -> f32 {
+		self.s * other.s + self.v.dot(other.v)
+	}
+
+	pub fn length(self) -> f32 {
+		(self.s * self.s + self.v.length()).sqrt()
+	}
+
+	pub fn normalize(self) -> Self {
+		let coef = self.length().recip();
+		Quaternion {
+			s: self.s * coef,
+			v: self.v * coef
+		}
+	}
+
+	pub fn nlerp(self, other: Self, delta: f32) -> Self {
+		(self * (1.0 * delta) + other * delta).normalize()
+	}
+
+	pub fn slerp(self, other: Self, delta: f32) -> Self {
+		let dot = self.dot(other);
+		let dot_threshold = 0.9995f32;
+
+		
+		let (other, dot) = if dot < 0.0f32 {
+			(other * -1.0, -dot )
+		} else {
+			(other, dot)
+		};
+
+		if dot > dot_threshold {
+			self + delta * (self + other * -1.0)
+		} else {
+			let theta_0 = dot.acos();
+			let theta = theta_0 * delta;
+
+			let sin_theta = theta.sin();
+			let sin_theta_0 = theta_0.sin();
+			
+			let s0 = theta.cos() - dot * sin_theta / sin_theta_0;
+			let s1 = sin_theta / sin_theta_0;
+			(s0 * self) + (s1 * other)
+		}
+	}
+}
+
+impl std::ops::Mul<Quaternion> for f32 {
+	type Output = Quaternion;
+	
+	fn mul(self, other: Quaternion) -> Quaternion {
+		Quaternion {
+			s: self * other.s,
+			v: self * other.v
+		}
+	}
+}
+
+impl std::ops::Mul<f32> for Quaternion {
+	type Output = Quaternion;
+	
+	fn mul(self, other: f32) -> Quaternion {
+		Quaternion {
+			s: other * self.s,
+			v: other * self.v
+		}
+	}
 }
 
 impl std::ops::Mul for Quaternion {
@@ -198,6 +285,17 @@ impl std::ops::Mul for Quaternion {
 				self.s * other.v.1 + self.v.1 * other.s + self.v.2 * other.v.0 - self.v.0 * other.v.2,
 				self.s * other.v.2 + self.v.2 * other.s + self.v.0 * other.v.1 - self.v.1 * other.v.0,
 			)
+		}
+	}
+}
+
+impl std::ops::Add for Quaternion {
+	type Output = Self;
+	
+	fn add(self, other: Self) -> Self {
+		Quaternion {
+			s: self.s + other.s,
+			v: self.v + other.v
 		}
 	}
 }

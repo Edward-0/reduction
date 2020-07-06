@@ -25,9 +25,13 @@ use winit::window::{Window, WindowBuilder};
 
 use std::thread;
 
+use std::time::Instant;
+
 use std::sync::Arc;
 
 use specs::prelude::*;
+
+extern crate packed_simd;
 
 mod maths;
 use maths::{Vec3, Quaternion, Mat4};
@@ -77,12 +81,18 @@ vulkano::impl_vertex!(Vertex, position, in_colour);
 struct RotSys;
 
 impl<'a> System<'a> for RotSys {
-	type SystemData = WriteStorage<'a, Rot>;
+	type SystemData = (Read<'a, FrameNumber>, WriteStorage<'a, Rot>);
 
-	fn run(&mut self, mut rot: Self::SystemData) {
+	fn run(&mut self, data: Self::SystemData) {
+		let (frame_number, mut rot) = data;
+	
+		let q0 = Quaternion::rotation(Vec3(0.0, -1.0, 1.0).normalize(), 45.0f32.to_radians());
+		let q1 = Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90.0f32.to_radians());
+		let de = (frame_number.0 % 256) as f32 / 256.0;
+//		let de = 1.0f32;
 
 		for rot in (&mut rot).join() {
-			rot.0 = rot.0 * Quaternion::rotation(Vec3(1.0, 0.0, 0.0).normalize(), 1.0f32.to_radians());
+			rot.0 = q0.slerp(q1, (de * 2.0 * std::f32::consts::PI).sin());
 		}
 	}
 }
@@ -134,6 +144,15 @@ mod fs {
 		"
 	}	
 }
+
+struct FrameNumber(u64, Instant);
+
+impl Default for FrameNumber {
+	fn default() -> Self {
+		Self(u64::default(), Instant::now())
+	}
+}
+
 
 #[derive(Default)]
 struct RecreateSwapchain(bool);
@@ -244,7 +263,7 @@ impl RenderSys {
 					depth: {
 						load: Clear,
 						store: Store,
-						format: Format::D16Unorm,
+						format: Format::D32Sfloat,
 						samples: 1,
 					}
 				},
@@ -302,15 +321,24 @@ impl RenderSys {
 impl<'a> System<'a> for RenderSys {
 	type SystemData = (
 		Write<'a, RecreateSwapchain>,
+		Write<'a, FrameNumber>,
 		ReadStorage<'a, Draw>,
 		ReadStorage<'a, Pos>,
 		ReadStorage<'a, Rot>
 	);
 
 	fn run(&mut self, data: Self::SystemData) {
-		let (mut recreate_swapchain, draw, pos, rot) = data;
+		let (mut recreate_swapchain, mut frame_number, draw, pos, rot) = data;
 		self.previous_frame_end.as_mut().unwrap().cleanup_finished();
 		
+		frame_number.0 += 1;
+
+		let elapsed = frame_number.1.elapsed().as_secs();
+
+		if elapsed != 0 && frame_number.0 % 256 == 0 {
+			println!("FPS: {}", frame_number.0 / elapsed);
+		}
+
 		if recreate_swapchain.0 {
 			println!("Recreating swapchain!");
 			let	dimensions:	[u32; 2] = self.surface.window().inner_size().into();
@@ -577,7 +605,7 @@ fn main() {
 				2, 3, 6, 6, 7, 3,
 
 				0, 3, 4, 4, 7, 3,
-				2, 6, 7
+				5, 6, 2, 2, 1, 5
 				
 			]
 			.iter()
@@ -595,18 +623,20 @@ fn main() {
 
 	world.create_entity()
 		.with(Vel([0.001;3])).with(Pos(Vec3(0.0, 1.0, -5.0)))
-		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 45f32.to_radians())))
-		.with(Draw {vertex_buffer: vertex_buffer, index_buffer: index_buffer}).build();
+		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90f32.to_radians())))
+		.with(Draw {vertex_buffer: vertex_buffer_2.clone(), index_buffer: index_buffer_2.clone()}).build();
 	world.create_entity()
 		.with(Vel([0.002;3])).with(Pos(Vec3(-2.0, 0.0, -6.0)))
-		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 45f32.to_radians())))
-		.with(Draw {vertex_buffer: vertex_buffer_1, index_buffer: index_buffer_1}).build();
+		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90f32.to_radians())))
+		.with(Draw {vertex_buffer: vertex_buffer_2.clone(), index_buffer: index_buffer_2.clone()}).build();
 	world.create_entity()
 		.with(Vel([0.003;3])).with(Pos(Vec3(0.0, 0.0, -6.0)))
-		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 45f32.to_radians())))
+		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(),90f32.to_radians())))
 		.with(Draw {vertex_buffer: vertex_buffer_2, index_buffer: index_buffer_2}).build();
 
 	world.insert(RecreateSwapchain(false));
+
+	world.insert(FrameNumber(0, Instant::now()));
 
 	let mut dispatcher = DispatcherBuilder::new()
 		.with(RotSys, "rot_sys", &[])
@@ -616,6 +646,7 @@ fn main() {
 	dispatcher.setup(&mut world);
 
 	dispatcher.dispatch(&mut world);
+
 
 	event_loop.run(move |event, _, control_flow| {
 		match event	{
@@ -658,7 +689,7 @@ fn window_size_dependent_setup(
 
 
 	let depth_buffer =
-		AttachmentImage::transient(device.clone(), dimensions, Format::D16Unorm).unwrap();
+		AttachmentImage::transient(device.clone(), dimensions, Format::D32Sfloat).unwrap();
 
 	(images
 		.iter()
