@@ -1,8 +1,9 @@
 use vulkano::pipeline::vertex::VertexMember;
 use vulkano::pipeline::vertex::VertexMemberTy;
 use packed_simd::f32x4;
+use serde::{Serialize, Deserialize};
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Vec3(pub f32, pub f32, pub f32);
 
 unsafe impl VertexMember for Vec3 {
@@ -110,6 +111,15 @@ impl Mat4 {
 			self.1, self.5, self.9, self.13,
 			self.2, self.6, self.10,self.14,
 			self.3, self.7, self.11,self.15
+		)
+	}
+
+	pub fn scale(self, amount: Vec3) -> Mat4 {
+		self * Mat4 (
+			amount.0, 0.0, 0.0, 0.0,
+			0.0, amount.1, 0.0, 0.0,
+			0.0, 0.0, amount.2, 0.0,
+			0.0, 0.0, 0.0, 1.0
 		)
 	}
 }

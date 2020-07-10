@@ -23,6 +23,8 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
+use serde::{Serialize, Deserialize};
+
 use std::thread;
 
 use std::time::Instant;
@@ -36,6 +38,11 @@ extern crate packed_simd;
 mod maths;
 use maths::{Vec3, Quaternion, Mat4};
 
+mod vertex;
+use vertex::Vertex;
+
+mod ply;
+use ply::StanfordPLY;
 // A component contains data
 // which is associated with an entity.
 #[derive(Debug)]
@@ -50,6 +57,13 @@ struct Pos (Vec3);
 
 impl Component for Pos {
     type Storage = VecStorage<Self>;
+}
+
+#[derive(Debug)]
+struct Scale (Vec3);
+
+impl Component for Scale {
+	type Storage = VecStorage<Self>;
 }
 
 #[derive(Debug)]
@@ -69,12 +83,6 @@ impl Component for Draw {
 }
 
 
-#[derive(Default, Debug, Clone)]
-struct Vertex {
-	position: Vec3,
-	in_colour: [f32; 3],
-}
-
 vulkano::impl_vertex!(Vertex, position, in_colour);
 
 
@@ -86,13 +94,16 @@ impl<'a> System<'a> for RotSys {
 	fn run(&mut self, data: Self::SystemData) {
 		let (frame_number, mut rot) = data;
 	
-		let q0 = Quaternion::rotation(Vec3(0.0, -1.0, 1.0).normalize(), 45.0f32.to_radians());
-		let q1 = Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90.0f32.to_radians());
-		let de = (frame_number.0 % 256) as f32 / 256.0;
+		let q0 = Quaternion::rotation(Vec3(0.0, -1.0, 1.0).normalize(), 90.0f32.to_radians());
+		let q1 = Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 270.0f32.to_radians());
+		let q2 = Quaternion::rotation(Vec3(1.0, 1.0, 1.0).normalize(), 90.0f32.to_radians());
+		let de = frame_number.0 as f32 / 256.0;
 //		let de = 1.0f32;
 
+		//let de = [1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32, 6.0f32, 7.0f32, 8.0f32].iter().map(|x| (de * x * 2.0 * std::f32::consts::PI).sin() * x.recip()).sum();
+//		println!("{}", de);
 		for rot in (&mut rot).join() {
-			rot.0 = q0.slerp(q1, (de * 2.0 * std::f32::consts::PI).sin());
+		rot.0 = q0.slerp(q1, (de * std::f32::consts::PI).sin()).slerp(q2, (de * std::f32::consts::PI * 4.0f32).cos());
 		}
 	}
 }
@@ -324,11 +335,12 @@ impl<'a> System<'a> for RenderSys {
 		Write<'a, FrameNumber>,
 		ReadStorage<'a, Draw>,
 		ReadStorage<'a, Pos>,
-		ReadStorage<'a, Rot>
+		ReadStorage<'a, Rot>,
+		ReadStorage<'a, Scale>,
 	);
 
 	fn run(&mut self, data: Self::SystemData) {
-		let (mut recreate_swapchain, mut frame_number, draw, pos, rot) = data;
+		let (mut recreate_swapchain, mut frame_number, draw, pos, rot, scale) = data;
 		self.previous_frame_end.as_mut().unwrap().cleanup_finished();
 		
 		frame_number.0 += 1;
@@ -390,7 +402,7 @@ impl<'a> System<'a> for RenderSys {
 			.begin_render_pass(self.framebuffers[image_num].clone(), false, clear_values)
 			.unwrap();
 
-		for (draw, pos, rot) in (&draw, &pos, &rot).join() {
+		for (draw, pos, rot, scale) in (&draw, &pos, &rot, &scale).join() {
 
 
 
@@ -399,6 +411,7 @@ impl<'a> System<'a> for RenderSys {
 					model: (Mat4::identity()
 						.translate(pos.0)
 						* rot.0.as_matrix())
+						.scale(scale.0)
 						.transpose()
 						.as_array(),
 					view: [
@@ -464,7 +477,24 @@ impl<'a> System<'a> for RenderSys {
 	}
 }
 
+
+use std::boxed::Box;
+use std::error::Error;
+
 fn main() {
+
+	//println!("{:#?}", gltf.buffers().next().unwrap().length());
+
+	//println!("{:#?}", gltf);
+
+	let ply_ply = StanfordPLY::new(include_str!("../../dragon_recon/dragon_vrip.ply").to_string());
+//	let ply_ply = StanfordPLY::new(include_str!("../untitled.ply").to_string());
+//	let ply_ply = StanfordPLY::new(include_str!("../bunny/reconstruction/bun_zipper.ply").to_string());
+
+//	println!("{:#?}", ply_ply.vertices());
+//	println!("{:#?}", ply_ply.indices());
+
+	//println!(include_str!("../untitled.ply"));
 	let event_loop = EventLoop::new();
 	let render_sys = RenderSys::new(&event_loop);
 
@@ -473,20 +503,7 @@ fn main() {
 			render_sys.device.clone(),
 			BufferUsage::all(),
 			false,
-			[
-				Vertex {
-					position: Vec3(-0.5, -0.5, 0.0),
-					in_colour: [1.0, 0.0, 0.0],
-				},
-				Vertex {
-					position: Vec3(0.0, 0.5, 0.0),
-					in_colour: [0.0, 1.0, 0.0],
-				},
-				Vertex {
-					position: Vec3(0.5, -0.5, 0.0),
-					in_colour: [0.0, 0.0, 1.0],
-				},
-			]
+			ply_ply.vertices()
 			.iter()
 			.cloned(),
 		)
@@ -569,9 +586,7 @@ fn main() {
 			render_sys.device.clone(),
 			BufferUsage::all(),
 			false,
-			[
-				0, 1, 2
-			]
+			ply_ply.indices()
 			.iter()
 			.cloned()
 		)
@@ -606,7 +621,6 @@ fn main() {
 
 				0, 3, 4, 4, 7, 3,
 				5, 6, 2, 2, 1, 5
-				
 			]
 			.iter()
 			.cloned()
@@ -619,20 +633,21 @@ fn main() {
 	world.register::<Vel>();
 	world.register::<Rot>();
 	world.register::<Draw>();
+	world.register::<Scale>();
 
 
 	world.create_entity()
-		.with(Vel([0.001;3])).with(Pos(Vec3(0.0, 1.0, -5.0)))
+		.with(Vel([0.001;3])).with(Pos(Vec3(0.0, 1.0, -5.0))).with(Scale(Vec3(10.0, 10.0, 10.0)))
 		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90f32.to_radians())))
-		.with(Draw {vertex_buffer: vertex_buffer_2.clone(), index_buffer: index_buffer_2.clone()}).build();
+		.with(Draw {vertex_buffer: vertex_buffer.clone(), index_buffer: index_buffer.clone()}).build();
 	world.create_entity()
-		.with(Vel([0.002;3])).with(Pos(Vec3(-2.0, 0.0, -6.0)))
+		.with(Vel([0.002;3])).with(Pos(Vec3(-2.0, 0.0, -6.0))).with(Scale(Vec3(1.0, 1.0, 1.0)))
 		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90f32.to_radians())))
-		.with(Draw {vertex_buffer: vertex_buffer_2.clone(), index_buffer: index_buffer_2.clone()}).build();
+		.with(Draw {vertex_buffer: vertex_buffer.clone(), index_buffer: index_buffer.clone()}).build();
 	world.create_entity()
-		.with(Vel([0.003;3])).with(Pos(Vec3(0.0, 0.0, -6.0)))
+		.with(Vel([0.003;3])).with(Pos(Vec3(0.0, 0.0, -6.0))).with(Scale(Vec3(1.0, 1.0, 1.0)))
 		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(),90f32.to_radians())))
-		.with(Draw {vertex_buffer: vertex_buffer_2, index_buffer: index_buffer_2}).build();
+		.with(Draw {vertex_buffer: vertex_buffer, index_buffer: index_buffer}).build();
 
 	world.insert(RecreateSwapchain(false));
 

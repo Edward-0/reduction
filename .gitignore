@@ -1,2 +1,6 @@
 /target
+*.tar*
+bunny
+*.ply
+*.glb
 Cargo.lock
