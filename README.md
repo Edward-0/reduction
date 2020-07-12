@@ -3,6 +3,6 @@ Simple rendering engine using Specs and Vulkan (vulkano). Includes a basic PLY m
 
 ## Implements
  * SLERP of Quaternions
- * PBR (based on Joey de Vries code from [Learn Opengl](https://learnopengl.com)
+ * PBR (based on Joey de Vries code from [Learn OpenGL](https://learnopengl.com)
  * Triangulation of abitrary polygons from PLY files
  * Vertex normal estimation
