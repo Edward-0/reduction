@@ -202,19 +202,118 @@ impl StanfordPLY {
 		StanfordPLY {elements: ply_data}
 	}
 
+	pub fn calc_normals(&mut self) {
+		
+		// initialise all normal values to Vec3(0.0, 0.0, 0.0)
+		self.elements[0].iter_mut().for_each(|element| {
+			element.properties.push(PLYProperty::Float(0.0));
+			element.properties.push(PLYProperty::Float(0.0));
+			element.properties.push(PLYProperty::Float(0.0));
+		});
+
+		let mut to_add = Vec::new();
+
+		// add the cross product of each neighbouring vertex on a face to the normal
+		self.elements[1].iter().for_each(|element| {
+			if let PLYProperty::List(count_property, other_properties) = &element.properties[0] {
+				if let PLYProperty::UChar(count) = count_property.as_ref() {
+					for i in 0..(*count as usize) {
+						match other_properties[i] {
+							PLYProperty::Int(val_1) => {
+								if let PLYProperty::Int(val_0) = other_properties[if i > 1 {i - 1} else {(*count as usize) - 1}] {
+									if let PLYProperty::Int(val_2) = other_properties[if i < (*count as usize - 1) {i + 1} else {0}] {
+										let a = Vec3(
+											if let PLYProperty::Float(val) = self.elements[0][val_0 as usize].properties[0] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_0 as usize].properties[1] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_0 as usize].properties[2] {
+												val
+											} else {panic!("ply: expected Float property")},
+										) - Vec3 (
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[0] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[1] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[2] {
+												val
+											} else {panic!("ply: expected Float property")},
+										);
+										let b = Vec3(
+											if let PLYProperty::Float(val) = self.elements[0][val_2 as usize].properties[0] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_2 as usize].properties[1] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_2 as usize].properties[2] {
+												val
+											} else {panic!("ply: expected Float property")},
+										) - Vec3 (
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[0] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[1] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[2] {
+												val
+											} else {panic!("ply: expected Float property")},
+										);
+										let c = a.cross(b);
+										to_add.push((val_1 as usize, c))
+									}
+								}
+							}
+							_ => {
+								panic!("unexpected value {:#?}", other_properties[i]);
+							}
+						}
+					}
+				}
+			}
+		});
+
+		for (index, to_add) in &to_add {
+			if let PLYProperty::Float(val) = self.elements[0][*index].properties[3] {
+				self.elements[0][*index].properties[3] = PLYProperty::Float(val + to_add.0);
+			}
+
+			if let PLYProperty::Float(val) = self.elements[0][*index].properties[4] {
+				self.elements[0][*index].properties[4] = PLYProperty::Float(val + to_add.1);
+			}
+
+			if let PLYProperty::Float(val) = self.elements[0][*index].properties[5] {
+				self.elements[0][*index].properties[5] = PLYProperty::Float(val + to_add.2);
+			}
+		}
+	}
+
 	pub fn vertices(&self) -> Vec<Vertex> {
-		self.elements[0].iter().map(|element|
+		let mut colour = 0.0f32;
+		self.elements[0].iter().map(|element| {
+			colour = (colour + 0.1) % 1.0;
 			Vertex {
-				position: Vec3(
-					if let PLYProperty::Float(x) = element.properties[0] {x} else {panic!("unexpected property type")}, 
-					if let PLYProperty::Float(y) = element.properties[1] {y} else {panic!("unexpected property type")}, 
-					if let PLYProperty::Float(z) = element.properties[2] {z} else {panic!("unexpected property type")}, 
-				),
-				in_colour: [
-					if let PLYProperty::Float(x) = element.properties[0] {0.5 * (x + 1.0)} else {panic!("unexpected property type")}, 
-					if let PLYProperty::Float(y) = element.properties[1] {0.5 * (y + 1.0)} else {panic!("unexpected property type")}, 
-					if let PLYProperty::Float(z) = element.properties[2] {0.5 * (z + 1.0)} else {panic!("unexpected property type")}, 
-				]
+					position: Vec3(
+						if let PLYProperty::Float(x) = element.properties[0] {x} else {panic!("unexpected property type")}, 
+						if let PLYProperty::Float(y) = element.properties[1] {y} else {panic!("unexpected property type")}, 
+						if let PLYProperty::Float(z) = element.properties[2] {z} else {panic!("unexpected property type")}, 
+					),
+					normal: Vec3(
+						if let PLYProperty::Float(x) = element.properties[3] {x} else {panic!("unexpected property type")}, 
+						if let PLYProperty::Float(y) = element.properties[4] {y} else {panic!("unexpected property type")}, 
+						if let PLYProperty::Float(z) = element.properties[5] {z} else {panic!("unexpected property type")}, 
+					),
+					in_colour: [
+						colour, 
+						colour, 
+						colour, 
+					]
+				}
 			}
 		).collect()
 	}

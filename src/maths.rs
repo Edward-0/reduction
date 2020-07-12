@@ -1,9 +1,7 @@
 use vulkano::pipeline::vertex::VertexMember;
 use vulkano::pipeline::vertex::VertexMemberTy;
-use packed_simd::f32x4;
-use serde::{Serialize, Deserialize};
 
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy)]
 pub struct Vec3(pub f32, pub f32, pub f32);
 
 unsafe impl VertexMember for Vec3 {
@@ -20,9 +18,9 @@ impl Vec3 {
 
 	pub fn cross(self, other: Self) -> Self {
 		Vec3(
-			self.1 * other.2 - self.2 - other.1,
-			self.2 * other.0 - self.0 - other.2, 
-			self.0 * other.1 - self.1 - other.0,)
+			self.1 * other.2 - self.2 * other.1,
+			self.2 * other.0 - self.0 * other.2, 
+			self.0 * other.1 - self.1 * other.0,)
 	}
 
 	pub fn length(self) -> f32 {
@@ -58,6 +56,15 @@ impl std::ops::Add for Vec3 {
 		Vec3(self.0 + other.0, self.1 + other.1, self.2 + other.2)
 	}
 }
+
+impl std::ops::Sub for Vec3 {
+	type Output = Vec3;
+	
+	fn sub(self, other: Vec3) -> Vec3 {
+		Vec3(self.0 - other.0, self.1 - other.1, self.2 - other.2)
+	}
+}
+
 
 
 #[derive(Default, Debug, Clone, Copy)]

@@ -1,4 +1,5 @@
 #![feature(thread_id_value)]
+#![feature(const_fn)]
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
@@ -22,10 +23,6 @@ use vulkano_win::VkSurfaceBuild;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
-
-use serde::{Serialize, Deserialize};
-
-use std::thread;
 
 use std::time::Instant;
 
@@ -82,9 +79,7 @@ impl Component for Draw {
 	type Storage = VecStorage<Self>;
 }
 
-
-vulkano::impl_vertex!(Vertex, position, in_colour);
-
+vulkano::impl_vertex!(Vertex, position, normal, in_colour);
 
 struct RotSys;
 
@@ -99,11 +94,10 @@ impl<'a> System<'a> for RotSys {
 		let q2 = Quaternion::rotation(Vec3(1.0, 1.0, 1.0).normalize(), 90.0f32.to_radians());
 		let de = frame_number.0 as f32 / 256.0;
 //		let de = 1.0f32;
-
 		//let de = [1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32, 6.0f32, 7.0f32, 8.0f32].iter().map(|x| (de * x * 2.0 * std::f32::consts::PI).sin() * x.recip()).sum();
 //		println!("{}", de);
 		for rot in (&mut rot).join() {
-		rot.0 = q0.slerp(q1, (de * std::f32::consts::PI).sin()).slerp(q2, (de * std::f32::consts::PI * 4.0f32).cos());
+			rot.0 = q0.slerp(q1, (de * std::f32::consts::PI).sin()).slerp(q2, (de * std::f32::consts::PI * 4.0f32).cos());
 		}
 	}
 }
@@ -111,48 +105,14 @@ impl<'a> System<'a> for RotSys {
 mod vs {
 	vulkano_shaders::shader! {
 		ty: "vertex",
-		src: "
-			#version 450	
-
-			layout (location = 0) in vec3 position;
-			layout (location = 1) in vec3 in_colour;
-
-			layout (set = 0, binding = 0) uniform Data {
-				mat4 model;
-				mat4 view;
-				mat4 projection;
-			};
-
-			layout (location = 0) out vec3 vert_colour;
-			layout (location = 1) out vec4 vert_z;
-
-			void main() {
-				vert_colour = in_colour;
-				gl_Position = projection * view * model * vec4(position, 1.0);
-				vert_z = gl_Position;
-
-			}
-		"
+		path: "src/vert.glsl"
 	}	
 }
 
 mod fs {
 	vulkano_shaders::shader! {
 		ty: "fragment",
-		src: "
-			#version 450
-
-			layout (location = 0) in vec3 vert_colour;
-			layout (location = 1) in vec4 vert_z;
-
-			layout (location = 0) out vec4 colour;
-
-			void main() {
-
-				colour = vec4(vert_colour, 1.0);
-
-			}
-		"
+		path: "src/frag.glsl"
 	}	
 }
 
@@ -201,7 +161,6 @@ impl RenderSys {
 			.build_vk_surface(&event_loop, instance.clone())
 			.unwrap();
 
-
 		let queue_family = physical
 			.queue_families()
 			.find(|&q| {
@@ -209,7 +168,6 @@ impl RenderSys {
 			})
 			.unwrap();
 
-	    
 		let device_ext = DeviceExtensions {
 			khr_swapchain: true,
 			..DeviceExtensions::none()
@@ -483,13 +441,18 @@ use std::error::Error;
 
 fn main() {
 
+	println!("vert: {}", include_str!("vert.glsl"));
+	println!("frag: {}", include_str!("frag.glsl"));
+
 	//println!("{:#?}", gltf.buffers().next().unwrap().length());
 
 	//println!("{:#?}", gltf);
 
-	let ply_ply = StanfordPLY::new(include_str!("../../dragon_recon/dragon_vrip.ply").to_string());
-//	let ply_ply = StanfordPLY::new(include_str!("../untitled.ply").to_string());
+	let mut ply_ply = StanfordPLY::new(include_str!("../../dragon_recon/dragon_vrip.ply").to_string());
+//	let mut ply_ply = StanfordPLY::new(include_str!("../untitled.ply").to_string());
 //	let ply_ply = StanfordPLY::new(include_str!("../bunny/reconstruction/bun_zipper.ply").to_string());
+
+	ply_ply.calc_normals();
 
 //	println!("{:#?}", ply_ply.vertices());
 //	println!("{:#?}", ply_ply.indices());
@@ -510,77 +473,6 @@ fn main() {
 		.unwrap()
 	};
 
-	let vertex_buffer_1 = {
-		CpuAccessibleBuffer::from_iter(
-			render_sys.device.clone(),
-			BufferUsage::all(),
-			false,
-			[
-				Vertex {
-					position: Vec3(0.5, 0.5, 0.0),
-					in_colour: [1.0, 0.0, 0.0],
-				},
-				Vertex {
-					position: Vec3(-0.5, -0.0, 0.0),
-					in_colour: [0.0, 1.0, 0.0],
-				},
-				Vertex {
-					position: Vec3(0.5, -0.5, 0.0),
-					in_colour: [0.0, 0.0, 1.0],
-				},
-			]
-			.iter()
-			.cloned(),
-		)
-		.unwrap()
-	};
-
-	let vertex_buffer_2 = {
-		CpuAccessibleBuffer::from_iter(
-			render_sys.device.clone(),
-			BufferUsage::all(),
-			false,
-			[
-				Vertex {
-					position: Vec3(1.0, 1.0, 1.0),
-					in_colour: [1.0, 1.0, 1.0],
-				},
-				Vertex {
-					position: Vec3(1.0, -1.0, 1.0),
-					in_colour: [1.0, 0.0, 1.0],
-				},
-				Vertex {
-					position: Vec3(-1.0, -1.0, 1.0),
-					in_colour: [0.0, 0.0, 1.0],
-				},
-				Vertex {
-					position: Vec3(-1.0, 1.0, 1.0),
-					in_colour: [0.0, 1.0, 1.0],
-				},
-				Vertex {
-					position: Vec3(1.0, 1.0, -1.0),
-					in_colour: [1.0, 1.0, 0.0],
-				},
-				Vertex {
-					position: Vec3(1.0, -1.0, -1.0),
-					in_colour: [1.0, 0.0, 0.0],
-				},
-				Vertex {
-					position: Vec3(-1.0, -1.0, -1.0),
-					in_colour: [0.0, 0.0, 0.0],
-				},
-				Vertex {
-					position: Vec3(-1.0, 1.0, -1.0),
-					in_colour: [0.0, 1.0, 0.0],
-				},
-
-			]
-			.iter()
-			.cloned(),
-		)
-		.unwrap()
-	};
-
 	let index_buffer = {
 		CpuAccessibleBuffer::from_iter(
 			render_sys.device.clone(),
@@ -592,41 +484,6 @@ fn main() {
 		)
 		.unwrap()
 	};
-
-	let index_buffer_1 = {
-		CpuAccessibleBuffer::from_iter(
-			render_sys.device.clone(),
-			BufferUsage::all(),
-			false,
-			[
-				0, 1, 2
-			]
-			.iter()
-			.cloned()
-		)
-		.unwrap()
-	};
-
-	let index_buffer_2 = {
-		CpuAccessibleBuffer::from_iter(
-			render_sys.device.clone(),
-			BufferUsage::all(),
-			false,
-			[
-				0, 1, 2, 2, 3, 0,
-				4, 5, 6, 6, 7, 4,
-				
-				0, 1, 4, 4, 5, 1,
-				2, 3, 6, 6, 7, 3,
-
-				0, 3, 4, 4, 7, 3,
-				5, 6, 2, 2, 1, 5
-			]
-			.iter()
-			.cloned()
-		)
-		.unwrap()
-	};	
 
 	let mut world = World::new();
 	world.register::<Pos>();
@@ -641,11 +498,11 @@ fn main() {
 		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90f32.to_radians())))
 		.with(Draw {vertex_buffer: vertex_buffer.clone(), index_buffer: index_buffer.clone()}).build();
 	world.create_entity()
-		.with(Vel([0.002;3])).with(Pos(Vec3(-2.0, 0.0, -6.0))).with(Scale(Vec3(1.0, 1.0, 1.0)))
+		.with(Vel([0.002;3])).with(Pos(Vec3(-2.0, 0.0, -6.0))).with(Scale(Vec3(10.0, 10.0, 10.0)))
 		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90f32.to_radians())))
 		.with(Draw {vertex_buffer: vertex_buffer.clone(), index_buffer: index_buffer.clone()}).build();
 	world.create_entity()
-		.with(Vel([0.003;3])).with(Pos(Vec3(0.0, 0.0, -6.0))).with(Scale(Vec3(1.0, 1.0, 1.0)))
+		.with(Vel([0.003;3])).with(Pos(Vec3(0.0, 0.0, -6.0))).with(Scale(Vec3(10.0, 10.0, 10.0)))
 		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(),90f32.to_radians())))
 		.with(Draw {vertex_buffer: vertex_buffer, index_buffer: index_buffer}).build();
 
