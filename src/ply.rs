@@ -11,9 +11,8 @@ enum PLYPropertyType {
 }
 
 impl PLYPropertyType {
-	fn from_string(string: String) -> Result<PLYPropertyType, &'static str> {
-		println!("ply: from {}", string);
-		match string.as_str() {
+	fn from_string(string: &str) -> Result<PLYPropertyType, &'static str> {
+		match string {
 			"float" => Ok(PLYPropertyType::Float),
 			"uchar" => Ok(PLYPropertyType::UChar),
 			"uint" => Ok(PLYPropertyType::UInt),
@@ -32,7 +31,6 @@ enum PLYProperty {
 	UInt(u32),
 	Int(i32),
 	List(Box<PLYProperty>, Vec<PLYProperty>),
-	UnInit
 }
 
 impl PLYProperty {
@@ -125,11 +123,11 @@ impl StanfordPLY {
 							let next = split.next().unwrap();
 							let rhs = match next {
 								"list" => PLYPropertyType::List(
-									Box::new(PLYPropertyType::from_string(split.next().unwrap().to_string()).unwrap()),
-									Box::new(PLYPropertyType::from_string(split.next().unwrap().to_string()).unwrap()),
+									Box::new(PLYPropertyType::from_string(split.next().unwrap()).unwrap()),
+									Box::new(PLYPropertyType::from_string(split.next().unwrap()).unwrap()),
 								),
 								_ => {
-									PLYPropertyType::from_string(next.to_string()).unwrap()
+									PLYPropertyType::from_string(next).unwrap()
 								}
 							};
 								println!("ply: not implemented");
@@ -219,6 +217,57 @@ impl StanfordPLY {
 				if let PLYProperty::UChar(count) = count_property.as_ref() {
 					for i in 0..(*count as usize) {
 						match other_properties[i] {
+							PLYProperty::UInt(val_1) => {
+								if let PLYProperty::UInt(val_0) = other_properties[if i > 1 {i - 1} else {(*count as usize) - 1}] {
+									if let PLYProperty::UInt(val_2) = other_properties[if i < (*count as usize - 1) {i + 1} else {0}] {
+										let a = Vec3(
+											if let PLYProperty::Float(val) = self.elements[0][val_0 as usize].properties[0] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_0 as usize].properties[1] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_0 as usize].properties[2] {
+												val
+											} else {panic!("ply: expected Float property")},
+										) - Vec3 (
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[0] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[1] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[2] {
+												val
+											} else {panic!("ply: expected Float property")},
+										);
+										let b = Vec3(
+											if let PLYProperty::Float(val) = self.elements[0][val_2 as usize].properties[0] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_2 as usize].properties[1] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_2 as usize].properties[2] {
+												val
+											} else {panic!("ply: expected Float property")},
+										) - Vec3 (
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[0] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[1] {
+												val
+											} else {panic!("ply: expected Float property")},
+											if let PLYProperty::Float(val) = self.elements[0][val_1 as usize].properties[2] {
+												val
+											} else {panic!("ply: expected Float property")},
+										);
+										let c = a.cross(b);
+										to_add.push((val_1 as usize, c))
+									}
+								}
+							}
+						
 							PLYProperty::Int(val_1) => {
 								if let PLYProperty::Int(val_0) = other_properties[if i > 1 {i - 1} else {(*count as usize) - 1}] {
 									if let PLYProperty::Int(val_2) = other_properties[if i < (*count as usize - 1) {i + 1} else {0}] {
@@ -269,6 +318,8 @@ impl StanfordPLY {
 									}
 								}
 							}
+
+
 							_ => {
 								panic!("unexpected value {:#?}", other_properties[i]);
 							}

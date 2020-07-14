@@ -18,8 +18,8 @@ void main() {
 	vec4 world_position = model * vec4(position, 1.0);
 	vert_colour = in_colour;
 	gl_Position = projection * view * world_position;
-	vert_z = gl_Position;
-	vert_normal = mat3(transpose(inverse(model))) * normal;
-//	vert_normal = mat3(model) * normal;
+	vert_z = world_position;
+//	vert_normal = normalize(mat3(transpose(inverse(model))) * normal);
+	vert_normal = mat3(model) * normal;
 }
 

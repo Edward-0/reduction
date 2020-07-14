@@ -1,5 +1,36 @@
 #version 450
 
+// Simplex 2D noise from https://gist.github.com/patriciogonzalezvivo/670c22f3966e662d2f83
+//
+vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
+
+float snoise(vec2 v) {
+	vec4 C = vec4(0.211324865405187, 0.366025403784439,	-0.577350269189626, 0.024390243902439);
+	vec2 i  = floor(v + dot(v, C.yy) );
+	vec2 x0 = v -   i + dot(i, C.xx);
+	vec2 i1;
+	i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+	vec4 x12 = x0.xyxy + C.xxzz;
+	x12.xy -= i1;
+	i = mod(i, 289.0);
+	vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
+	+ i.x + vec3(0.0, i1.x, 1.0 ));
+	vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy),
+	dot(x12.zw,x12.zw)), 0.0);
+	m = m*m ;
+	m = m*m ;
+	vec3 x = 2.0 * fract(p * C.www) - 1.0;
+	vec3 h = abs(x) - 0.5;
+	vec3 ox = floor(x + 0.5);
+	vec3 a0 = x - ox;
+	m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+	vec3 g;
+	g.x  = a0.x  * x0.x  + h.x  * x0.y;
+	g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+	return 130.0 * dot(m, g);
+}
+
+
 // PBR fragment shader partially based on works by Joey de Vries from the learnopengl toturial series
 
 layout (location = 0) in vec3 vert_colour;
@@ -50,28 +81,28 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
 void main() {
 
 	vec3 lightPositions[4] = {
-		vec3(3.0, 2.0, 1.0),
+		vec3(-3.0, 1.0, -3.0),
 		vec3(1.0, 1.0, -1.0),
-		vec3(-1.0, 6.0, 1.0),
-		vec3(0.0, -3.0, 1.0),
+		vec3(-1.0, 6.0, -0.0),
+		vec3(0.0, -3.0, -0.0),
 	};
 
 	
 	vec3 lightColors[4] = { 
-		vec3(600.0, 200.0, 200.0),
-		vec3(600.0, 1000.0, 100.0),
-		vec3(900000.0, 500.0, 700.0),
-		vec3(0.0, 0.0, 200.0),
+		vec3(60.0, 20.0, 20.0),
+		vec3(60.0, 10.0, 10.0),
+		vec3(90.0, 50.0, 40.0),
+		vec3(0.0, 0.0, 20.0),
 	};
 	
-	vec3 albedo = normalize(vert_normal);
+	vec3 albedo = vec3(1.0);
 	float metallic = 1.0;
-	float roughness = 0.3;
+	float roughness = 0.1;
 	float ao = 0.01;
 
 	vec3 WorldPos = vert_pos.xyz;
 
-    vec3 N = normalize(vert_normal);
+    vec3 N = normalize(-vert_normal);
     vec3 V = normalize(vec3(0.0) - WorldPos);
 
     // calculate reflectance at normal incidence; if dia-electric (like plastic) use F0 
@@ -81,6 +112,7 @@ void main() {
 
     // reflectance equation
     vec3 Lo = vec3(0.0);
+	int i = 0;
     for(int i = 0; i < 4; ++i) 
     {
         // calculate per-light radiance
@@ -94,7 +126,7 @@ void main() {
         float NDF = DistributionGGX(N, H, roughness);   
         float G   = GeometrySmith(N, V, L, roughness);      
         vec3 F    = fresnelSchlick(clamp(dot(H, V), 0.0, 1.0), F0);
-           
+
         vec3 nominator    = NDF * G * F; 
         float denominator = 4 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0);
         vec3 specular = nominator / max(denominator, 0.001); // prevent divide by zero for NdotV=0.0 or NdotL=0.0
@@ -124,11 +156,12 @@ void main() {
     vec3 color = ambient + Lo;
 
     // HDR tonemapping
-    color = color / (color + vec3(1.0));
+//	color = color / (color + vec3(1.0));
     // gamma correct
-    color = pow(color, vec3(1.0/2.2)); 
+	color = pow(color, vec3(1.0/2.2)); 
 
-    colour = vec4(color, 1.0);
-
+	colour = vec4(color, 1.0);
+//	colour = vec4(normalize(-vert_normal), 1.0);
+//	colour = vec4(radiance * NdotL, 1.0);
 }
 

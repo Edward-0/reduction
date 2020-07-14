@@ -30,7 +30,6 @@ use std::sync::Arc;
 
 use specs::prelude::*;
 
-extern crate packed_simd;
 
 mod maths;
 use maths::{Vec3, Quaternion, Mat4};
@@ -448,9 +447,10 @@ fn main() {
 
 	//println!("{:#?}", gltf);
 
-	let mut ply_ply = StanfordPLY::new(include_str!("../../dragon_recon/dragon_vrip.ply").to_string());
+//	let mut ply_ply = StanfordPLY::new(include_str!("../../dragon_recon/dragon_vrip.ply").to_string());
 //	let mut ply_ply = StanfordPLY::new(include_str!("../untitled.ply").to_string());
-//	let ply_ply = StanfordPLY::new(include_str!("../bunny/reconstruction/bun_zipper.ply").to_string());
+	let mut ply_ply = StanfordPLY::new(include_str!("../sphere.ply").to_string());
+//	let mut ply_ply = StanfordPLY::new(include_str!("../bunny/reconstruction/bun_zipper.ply").to_string());
 
 	ply_ply.calc_normals();
 
@@ -493,16 +493,18 @@ fn main() {
 	world.register::<Scale>();
 
 
+	let scale = Vec3(1.0, 1.0, 1.0);
+
 	world.create_entity()
-		.with(Vel([0.001;3])).with(Pos(Vec3(0.0, 1.0, -5.0))).with(Scale(Vec3(10.0, 10.0, 10.0)))
+		.with(Vel([0.001;3])).with(Pos(Vec3(0.0, 1.0, -5.0))).with(Scale(scale))
 		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90f32.to_radians())))
 		.with(Draw {vertex_buffer: vertex_buffer.clone(), index_buffer: index_buffer.clone()}).build();
 	world.create_entity()
-		.with(Vel([0.002;3])).with(Pos(Vec3(-2.0, 0.0, -6.0))).with(Scale(Vec3(10.0, 10.0, 10.0)))
+		.with(Vel([0.002;3])).with(Pos(Vec3(-2.0, 0.0, -6.0))).with(Scale(scale))
 		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(), 90f32.to_radians())))
 		.with(Draw {vertex_buffer: vertex_buffer.clone(), index_buffer: index_buffer.clone()}).build();
 	world.create_entity()
-		.with(Vel([0.003;3])).with(Pos(Vec3(0.0, 0.0, -6.0))).with(Scale(Vec3(10.0, 10.0, 10.0)))
+		.with(Vel([0.003;3])).with(Pos(Vec3(0.0, 0.0, -6.0))).with(Scale(scale))
 		.with(Rot(Quaternion::rotation(Vec3(1.0, 1.0, 0.0).normalize(),90f32.to_radians())))
 		.with(Draw {vertex_buffer: vertex_buffer, index_buffer: index_buffer}).build();
 
